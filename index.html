@@ -1,34 +1,141 @@
 <!DOCTYPE html><meta charset="utf-8">
 <canvas id="stage"></canvas>
 <script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+<script type="module" src="./doope/main.js"></script>
 <script>
-const {Engine, Render, Runner, Bodies, World, Mouse, MouseConstraint} = Matter;
+const {Engine, Render, Runner, Bodies, World, Mouse, MouseConstraint, Events, Composite} = Matter;
 
 // ①エンジン & ワールド
 const engine = Engine.create();
 const world  = engine.world;
+
+// ステージの幅と高さ
+const width = window.innerWidth;
+const height = window.innerHeight;
 
 // ②レンダラー
 const render = Render.create({
   element: document.body,
   canvas : document.getElementById('stage'),
   engine : engine,
-  options: { width: 800, height: 600, wireframes: false }
+  options: { width, height, wireframes: false }
 });
 Render.run(render);
 
+// 壁を管理するための配列
+let walls = [];
+
+function createWalls(width, height) {
+  // 既存の壁をワールドから削除
+  if (walls.length > 0) {
+    World.remove(world, walls);
+  }
+  // 新しい壁を作成
+  walls = [
+    Bodies.rectangle(width / 2, 0,   width, 100, {isStatic: true}), // ceiling
+    Bodies.rectangle(width / 2, height, width, 100, {isStatic: true}), // floor
+    Bodies.rectangle(0, height / 2, 100, height, {isStatic: true}), // left wall
+    Bodies.rectangle(width, height / 2, 100, height, {isStatic: true}) // right wall
+  ];
+  World.add(world, walls);
+}
+
+// 初期壁生成
+createWalls(window.innerWidth, window.innerHeight);
+
+// リサイズ時
+window.onresize = () => {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  render.canvas.width = width;
+  render.canvas.height = height;
+  render.options.width = width;
+  render.options.height = height;
+  createWalls(width, height);
+};
+
+const box = Bodies.rectangle(1000, 80, 80, 80, {
+  render: {
+    sprite: {
+      texture: 'img/jj.png',   // 任意の画像
+      xScale : 0.1,               // ピクセル≒物理寸法に合わせて調整
+      yScale : 0.1
+    }
+  }
+});
+
+const circle = Bodies.circle(1000, 80, 80, {
+  render: {
+    sprite: {
+      texture: 'img/jj.png',   // 任意の画像
+      xScale : 0.2,               // ピクセル≒物理寸法に合わせて調整
+      yScale : 0.2,
+      radius : 40
+    }
+  }
+});
+
+render.options.wireframes = false;        // 線画をオフ
+render.options.background = '#fff';       // 背景色
+render.options.pixelRatio = window.devicePixelRatio; // Retinaに対応
+
 // ③ステージ生成
-World.add(world, [
-  Bodies.rectangle(400, 0,   800, 50, {isStatic: true}), // ceiling
-  Bodies.rectangle(400, 600, 800, 50, {isStatic: true}), // floor
-  Bodies.rectangle(400, 200, 80,  80),                   // box
-  Bodies.circle  (450, 50,  40)                          // ball
-]);
+// World.add(world, [
+//   Bodies.rectangle(400, 200, 80,  80), // box
+//   Bodies.circle  (450, 50,  40)        // ball
+// ]);
+World.add(world, [box, circle]);
 
 // ④マウス操作
 const mouse = Mouse.create(render.canvas);
 World.add(world, MouseConstraint.create(engine, { mouse }));
 
-// ⑤ループ開始
-Runner.run(Runner.create(), engine);
+const HIT_DURATION = 12;            // フレーム数  (60fpsなら約0.2秒)
+const SCALE_FACTOR = 1.3; 
+
+// 衝突イベント
+const hitSound = new Audio('audio/stomp.wav');
+Events.on(engine, 'collisionStart', event => {
+  event.pairs.forEach(pair => {
+    [pair.bodyA, pair.bodyB].forEach(body => {
+      body.hitTimer = HIT_DURATION;
+    });
+    hitSound.currentTime = 0;
+    hitSound.play();
+  });
+});
+
+// 毎フレーム：タイマーが残っているBodyを拡大
+Events.on(engine, 'afterUpdate', () => {
+  Composite.allBodies(world).forEach(body => {
+    if (body.hitTimer && body.hitTimer > 0) {
+      const t = body.hitTimer / HIT_DURATION;
+      const scale = 1 + t * (SCALE_FACTOR - 1) * t;
+      if (body.render.sprite) {
+        body.render.sprite.xScale = scale;
+        body.render.sprite.yScale = scale;
+      }
+      body.hitTimer--;
+    } else if (body.hitTimer === 0) {
+      if (body.render.sprite) {
+        body.render.sprite.xScale = 1;
+        body.render.sprite.yScale = 1;
+      }
+      delete body.hitTimer;
+    }
+  });
+});
 </script>
+
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+  }
+  #stage {
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    background-color: #f0f0f0;
+  }
+</style>
